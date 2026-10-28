@@ -1,0 +1,455 @@
+import { Button, VerticalBox, HorizontalBox, TabWidget, ScrollView, LineEdit, CheckBox, Slider, ProgressIndicator } from "std-widgets.slint";
+
+export struct FileItem {
+    name: string,
+    size_str: string,
+    path: string,
+}
+
+export component MainWindow inherits Window {
+    title: "PDF Tools (Rust Edition)";
+    min-width: 640px;
+    min-height: 520px;
+    preferred-width: 720px;
+    preferred-height: 560px;
+
+    // Callbacks from Rust
+    in-out property <[FileItem]> merge_files: [];
+    in-out property <int> merge_selected_idx: -1;
+    in-out property <string> merge_output_path: "";
+    in-out property <bool> merge_open_after: false;
+
+    in-out property <[FileItem]> split_files: [];
+    in-out property <int> split_selected_idx: -1;
+    in-out property <int> split_at_page: 1;
+    in-out property <bool> split_open_after: true;
+
+    in-out property <[FileItem]> compress_files: [];
+    in-out property <int> compress_selected_idx: -1;
+    in-out property <int> compress_quality: 80;
+    in-out property <bool> compress_open_after: true;
+
+    in-out property <bool> is_busy: false;
+    in-out property <string> status_message: "Připraven";
+    in-out property <float> progress_value: 0.0;
+
+    // Callbacks to Rust
+    callback add_merge_files();
+    callback remove_merge_file(int);
+    callback move_merge_up(int);
+    callback move_merge_down(int);
+    callback clear_merge();
+    callback browse_merge_output();
+    callback run_merge();
+
+    callback add_split_files();
+    callback remove_split_file(int);
+    callback clear_split();
+    callback change_split_page(int);
+    callback run_split();
+
+    callback add_compress_files();
+    callback remove_compress_file(int);
+    callback clear_compress();
+    callback run_compress();
+
+    VerticalBox {
+        padding: 12px;
+        spacing: 8px;
+
+        TabWidget {
+            Tab {
+                title: "  Sloučit dokumenty  ";
+                VerticalBox {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    HorizontalBox {
+                        Text {
+                            text: "Vyberte a seřaďte PDF dokumenty ke sloučení:";
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                        Button {
+                            text: "Přidat PDF...";
+                            enabled: !root.is_busy;
+                            clicked => { root.add_merge_files(); }
+                        }
+                        Button {
+                            text: "Nahoru";
+                            enabled: !root.is_busy && root.merge_selected_idx > 0;
+                            clicked => { root.move_merge_up(root.merge_selected_idx); }
+                        }
+                        Button {
+                            text: "Dolů";
+                            enabled: !root.is_busy && root.merge_selected_idx >= 0 && root.merge_selected_idx < root.merge_files.length - 1;
+                            clicked => { root.move_merge_down(root.merge_selected_idx); }
+                        }
+                        Button {
+                            text: "Odebrat";
+                            enabled: !root.is_busy && root.merge_selected_idx >= 0;
+                            clicked => { root.remove_merge_file(root.merge_selected_idx); }
+                        }
+                        Button {
+                            text: "Vymazat";
+                            enabled: !root.is_busy && root.merge_files.length > 0;
+                            clicked => { root.clear_merge(); }
+                        }
+                    }
+
+                    Rectangle {
+                        border-width: 1px;
+                        border-color: #ccc;
+                        border-radius: 4px;
+                        background: #fafafa;
+
+                        ScrollView {
+                            VerticalBox {
+                                padding: 4px;
+                                spacing: 2px;
+                                alignment: start;
+
+                                for item[idx] in root.merge_files : Rectangle {
+                                    height: 32px;
+                                    background: root.merge_selected_idx == idx ? #cce5ff : (touch.has-hover ? #f0f0f0 : transparent);
+                                    border-radius: 3px;
+
+                                    touch := TouchArea {
+                                        clicked => { root.merge_selected_idx = idx; }
+                                    }
+
+                                    HorizontalBox {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        Text {
+                                            text: (idx + 1) + ". " + item.name;
+                                            font-weight: 600;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: item.size_str;
+                                            color: #666;
+                                            horizontal-alignment: right;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                if (root.merge_files.length == 0) : HorizontalBox {
+                                    alignment: center;
+                                    padding: 20px;
+                                    Text {
+                                        text: "Žádné vybrané soubory. Klikněte na 'Přidat PDF...' výše.";
+                                        color: #888;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalBox {
+                        spacing: 8px;
+                        Text {
+                            text: "Uložit jako:";
+                            vertical-alignment: center;
+                        }
+                        LineEdit {
+                            text <=> root.merge_output_path;
+                            read-only: true;
+                        }
+                        Button {
+                            text: "Procházet...";
+                            enabled: !root.is_busy;
+                            clicked => { root.browse_merge_output(); }
+                        }
+                    }
+
+                    HorizontalBox {
+                        CheckBox {
+                            text: "Po dokončení otevřít výsledný dokument";
+                            checked <=> root.merge_open_after;
+                        }
+                        Button {
+                            text: "Sloučit dokumenty";
+                            primary: true;
+                            enabled: !root.is_busy && root.merge_files.length > 1;
+                            clicked => { root.run_merge(); }
+                        }
+                    }
+                }
+            }
+
+            Tab {
+                title: "  Rozdělit dokumenty  ";
+                VerticalBox {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    HorizontalBox {
+                        Text {
+                            text: "Vyberte PDF dokumenty k rozdělení:";
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                        Button {
+                            text: "Přidat PDF...";
+                            enabled: !root.is_busy;
+                            clicked => { root.add_split_files(); }
+                        }
+                        Button {
+                            text: "Odebrat";
+                            enabled: !root.is_busy && root.split_selected_idx >= 0;
+                            clicked => { root.remove_split_file(root.split_selected_idx); }
+                        }
+                        Button {
+                            text: "Vymazat";
+                            enabled: !root.is_busy && root.split_files.length > 0;
+                            clicked => { root.clear_split(); }
+                        }
+                    }
+
+                    Rectangle {
+                        border-width: 1px;
+                        border-color: #ccc;
+                        border-radius: 4px;
+                        background: #fafafa;
+
+                        ScrollView {
+                            VerticalBox {
+                                padding: 4px;
+                                spacing: 2px;
+                                alignment: start;
+
+                                for item[idx] in root.split_files : Rectangle {
+                                    height: 32px;
+                                    background: root.split_selected_idx == idx ? #cce5ff : (touch_split.has-hover ? #f0f0f0 : transparent);
+                                    border-radius: 3px;
+
+                                    touch_split := TouchArea {
+                                        clicked => { root.split_selected_idx = idx; }
+                                    }
+
+                                    HorizontalBox {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        Text {
+                                            text: item.name;
+                                            font-weight: 600;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: item.size_str;
+                                            color: #666;
+                                            horizontal-alignment: right;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                if (root.split_files.length == 0) : HorizontalBox {
+                                    alignment: center;
+                                    padding: 20px;
+                                    Text {
+                                        text: "Žádné vybrané soubory. Klikněte na 'Přidat PDF...' výše.";
+                                        color: #888;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            text: "Počet stránek v každém novém dokumentu:";
+                            vertical-alignment: center;
+                        }
+                        Button {
+                            text: " - ";
+                            enabled: !root.is_busy && root.split_at_page > 1;
+                            clicked => { root.change_split_page(-1); }
+                        }
+                        Text {
+                            text: root.split_at_page;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                            min-width: 30px;
+                            horizontal-alignment: center;
+                        }
+                        Button {
+                            text: " + ";
+                            enabled: !root.is_busy;
+                            clicked => { root.change_split_page(1); }
+                        }
+                    }
+
+                    HorizontalBox {
+                        CheckBox {
+                            text: "Po dokončení otevřít složku s rozdělenými dokumenty";
+                            checked <=> root.split_open_after;
+                        }
+                        Button {
+                            text: "Rozdělit dokumenty";
+                            primary: true;
+                            enabled: !root.is_busy && root.split_files.length > 0;
+                            clicked => { root.run_split(); }
+                        }
+                    }
+                }
+            }
+
+            Tab {
+                title: "  Komprimovat dokumenty  ";
+                VerticalBox {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    HorizontalBox {
+                        Text {
+                            text: "Vyberte PDF dokumenty ke kompresi:";
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                        Button {
+                            text: "Přidat PDF...";
+                            enabled: !root.is_busy;
+                            clicked => { root.add_compress_files(); }
+                        }
+                        Button {
+                            text: "Odebrat";
+                            enabled: !root.is_busy && root.compress_selected_idx >= 0;
+                            clicked => { root.remove_compress_file(root.compress_selected_idx); }
+                        }
+                        Button {
+                            text: "Vymazat";
+                            enabled: !root.is_busy && root.compress_files.length > 0;
+                            clicked => { root.clear_compress(); }
+                        }
+                    }
+
+                    Rectangle {
+                        border-width: 1px;
+                        border-color: #ccc;
+                        border-radius: 4px;
+                        background: #fafafa;
+
+                        ScrollView {
+                            VerticalBox {
+                                padding: 4px;
+                                spacing: 2px;
+                                alignment: start;
+
+                                for item[idx] in root.compress_files : Rectangle {
+                                    height: 32px;
+                                    background: root.compress_selected_idx == idx ? #cce5ff : (touch_comp.has-hover ? #f0f0f0 : transparent);
+                                    border-radius: 3px;
+
+                                    touch_comp := TouchArea {
+                                        clicked => { root.compress_selected_idx = idx; }
+                                    }
+
+                                    HorizontalBox {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        Text {
+                                            text: item.name;
+                                            font-weight: 600;
+                                            vertical-alignment: center;
+                                        }
+                                        Text {
+                                            text: item.size_str;
+                                            color: #666;
+                                            horizontal-alignment: right;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                if (root.compress_files.length == 0) : HorizontalBox {
+                                    alignment: center;
+                                    padding: 20px;
+                                    Text {
+                                        text: "Žádné vybrané soubory. Klikněte na 'Přidat PDF...' výše.";
+                                        color: #888;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            text: "Kvalita komprese obrázků: " + root.compress_quality + " %";
+                            vertical-alignment: center;
+                            min-width: 220px;
+                        }
+                        Slider {
+                            minimum: 10;
+                            maximum: 100;
+                            value: root.compress_quality;
+                            changed(val) => { root.compress_quality = Math.round(val); }
+                        }
+                    }
+
+                    HorizontalBox {
+                        CheckBox {
+                            text: "Po dokončení otevřít složku s výsledky";
+                            checked <=> root.compress_open_after;
+                        }
+                        Button {
+                            text: "Komprimovat dokumenty";
+                            primary: true;
+                            enabled: !root.is_busy && root.compress_files.length > 0;
+                            clicked => { root.run_compress(); }
+                        }
+                    }
+                }
+            }
+
+            Tab {
+                title: "  O programu  ";
+                VerticalBox {
+                    padding: 20px;
+                    spacing: 12px;
+                    alignment: center;
+
+                    Text {
+                        text: "PDF Tools v Rustu";
+                        font-size: 20px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: "Verze 1.0 (Nativní Rust Edition)";
+                        font-size: 13px;
+                        color: #666;
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: "Bleskový a úsporný nástroj pro manipulaci s PDF dokumenty bez nutnosti instalace Javy.\nPodporuje slučování, rozdělování a kompresi PDF.";
+                        horizontal-alignment: center;
+                    }
+                    Text {
+                        text: "Postaveno na technologiích: Rust, Slint GUI a lopdf.";
+                        font-size: 12px;
+                        color: #888;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Dolní stavový panel s indikátorem postupu
+        HorizontalBox {
+            height: 24px;
+            Text {
+                text: root.status_message;
+                color: root.is_busy ? #0056b3 : #444;
+                vertical-alignment: center;
+            }
+            if (root.is_busy) : ProgressIndicator {
+                progress: root.progress_value;
+                min-width: 120px;
+            }
+        }
+    }
+}
